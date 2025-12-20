@@ -18,6 +18,14 @@ python3 schedule_tool.py render --db schedule.db --outdir output --renderer matr
 
 Open `output/index.html` to navigate to each day.
 
+## GUI editor (reorder rooms, hide items)
+
+```bash
+python3 gui_server.py --db schedule.db --layout layout.json
+```
+
+Then open `http://127.0.0.1:8787` in your browser. Drag room headers to reorder columns, hide items, and click **Save layout**. The saved layout is stored in `layout.json` and used by matrix renderers.
+
 ## Using uv (optional)
 
 ```bash
@@ -64,6 +72,9 @@ PDF options (matrix-pdf only):
 - `--page-size` (default `A4`)
 - `--orientation` (default `landscape`)
 
+Layout options:
+- `--layout` (default `layout.json`)
+
 ## Direct matrix PDF (no HTML)
 
 ```bash
@@ -75,6 +86,7 @@ Options:
 - `--orientation` (default `landscape`)
 - `--slot-minutes` (default `15`)
 - `--font-size` (default `6.5`)
+- `--layout` (default `layout.json`)
 
 ## Matrix overlap behavior
 
@@ -88,6 +100,7 @@ When two events overlap in the same room/time (e.g., a session block and an indi
 - `output/day-<day>.html`: one file per day
 - `output/day-<day>.pdf`: one PDF per day when using `matrix-pdf`
 - `output-pdf/day-<day>.pdf`: one PDF per day when using `render_matrix_pdf.py`
+- `layout.json`: GUI layout overrides (room order + hidden items)
 
 ## Notes and customization
 

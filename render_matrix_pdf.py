@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 
+import layout_config
 from schedule_tool import (
     DAY_ORDER,
     load_events_by_day,
@@ -167,6 +168,7 @@ def render_day(
     day_label: str,
     events: list[dict],
     config: RenderConfig,
+    room_order_override: list[str] | None = None,
 ) -> None:
     events = [
         event
@@ -176,17 +178,25 @@ def render_day(
     if not events:
         return
 
-    room_counts = collections.Counter(
-        event.get("room") for event in events if event.get("room")
-    )
-    rooms = sorted(room_counts.keys(), key=lambda r: (-room_counts[r], r))
-    events_by_room: dict[str, list[dict]] = {room: [] for room in rooms}
+    room_counts: collections.Counter[str] = collections.Counter()
+    events_by_room: dict[str, list[dict]] = {}
     for event in events:
         room = event.get("room") or "TBD"
-        if room not in events_by_room:
-            events_by_room[room] = []
+        room_counts[room] += 1
+        events_by_room.setdefault(room, []).append(event)
+
+    default_rooms = sorted(room_counts.keys(), key=lambda r: (-room_counts[r], r))
+    room_order_override = room_order_override or []
+    seen_rooms: set[str] = set()
+    rooms: list[str] = []
+    for room in room_order_override:
+        if room in room_counts and room not in seen_rooms:
             rooms.append(room)
-        events_by_room[room].append(event)
+            seen_rooms.add(room)
+    for room in default_rooms:
+        if room not in seen_rooms:
+            rooms.append(room)
+            seen_rooms.add(room)
 
     for room, room_events in list(events_by_room.items()):
         events_by_room[room] = resolve_room_conflicts(room_events)
@@ -370,10 +380,17 @@ def main() -> None:
     )
     parser.add_argument("--slot-minutes", type=int, default=15)
     parser.add_argument("--font-size", type=float, default=6.5)
+    parser.add_argument(
+        "--layout",
+        type=Path,
+        default=Path("layout.json"),
+        help="Layout overrides JSON",
+    )
     args = parser.parse_args()
 
     conn = sqlite3.connect(str(args.db))
     events_by_day = load_events_by_day(conn)
+    layout = layout_config.load_layout(args.layout)
 
     config = RenderConfig(
         page_size=args.page_size,
@@ -394,13 +411,16 @@ def main() -> None:
         events = events_by_day.get(day_name, [])
         if not events:
             continue
+        events, room_order = layout_config.apply_layout(events, day_name, layout)
+        if not events:
+            continue
         label = select_day_label(events)
         pdf = FPDF(
             orientation=args.orientation[0].upper(),
             unit="mm",
             format=args.page_size,
         )
-        render_day(pdf, day_name, label, events, config)
+        render_day(pdf, day_name, label, events, config, room_order_override=room_order)
         output_path = args.outdir / f"day-{day_name.lower()}.pdf"
         pdf.output(str(output_path))
         outputs.append(output_path)

@@ -8,6 +8,7 @@ import collections
 import datetime as dt
 import html
 import json
+import layout_config
 import re
 import shutil
 import sqlite3
@@ -392,7 +393,7 @@ def select_day_label(events: list[dict]) -> str:
 def load_events_by_day(conn: sqlite3.Connection) -> dict[str, list[dict]]:
     rows = conn.execute(
         """
-        SELECT day_name, day_index, date_text, date_iso, start_time, end_time,
+        SELECT id, day_name, day_index, date_text, date_iso, start_time, end_time,
                start_min, end_min, room, title, session, talk_title
         FROM events
         ORDER BY day_index, start_min, end_min
@@ -401,18 +402,19 @@ def load_events_by_day(conn: sqlite3.Connection) -> dict[str, list[dict]]:
     events_by_day: dict[str, list[dict]] = collections.defaultdict(list)
     for row in rows:
         event = {
-            "day_name": row[0],
-            "day_index": row[1],
-            "date_text": row[2],
-            "date_iso": row[3],
-            "start_time": row[4],
-            "end_time": row[5],
-            "start_min": row[6],
-            "end_min": row[7],
-            "room": row[8],
-            "title": row[9],
-            "session": row[10],
-            "talk_title": row[11],
+            "id": row[0],
+            "day_name": row[1],
+            "day_index": row[2],
+            "date_text": row[3],
+            "date_iso": row[4],
+            "start_time": row[5],
+            "end_time": row[6],
+            "start_min": row[7],
+            "end_min": row[8],
+            "room": row[9],
+            "title": row[10],
+            "session": row[11],
+            "talk_title": row[12],
         }
         events_by_day[event["day_name"]].append(event)
     return events_by_day
@@ -903,6 +905,7 @@ def render_day_matrix_html(
     pdf_mode: bool = False,
     page_size: str = "A4",
     orientation: str = "landscape",
+    room_order_override: list[str] | None = None,
 ) -> str:
     events = [
         event
@@ -913,17 +916,25 @@ def render_day_matrix_html(
         return ""
 
     slot_minutes = 15
-    room_counts = collections.Counter(
-        event.get("room") for event in events if event.get("room")
-    )
-    rooms = sorted(room_counts.keys(), key=lambda r: (-room_counts[r], r))
-    events_by_room: dict[str, list[dict]] = {room: [] for room in rooms}
+    room_counts: collections.Counter[str] = collections.Counter()
+    events_by_room: dict[str, list[dict]] = {}
     for event in events:
         room = event.get("room") or "TBD"
-        if room not in events_by_room:
-            events_by_room[room] = []
+        room_counts[room] += 1
+        events_by_room.setdefault(room, []).append(event)
+
+    default_rooms = sorted(room_counts.keys(), key=lambda r: (-room_counts[r], r))
+    room_order_override = room_order_override or []
+    seen_rooms: set[str] = set()
+    rooms: list[str] = []
+    for room in room_order_override:
+        if room in room_counts and room not in seen_rooms:
             rooms.append(room)
-        events_by_room[room].append(event)
+            seen_rooms.add(room)
+    for room in default_rooms:
+        if room not in seen_rooms:
+            rooms.append(room)
+            seen_rooms.add(room)
 
     for room, room_events in list(events_by_room.items()):
         events_by_room[room] = resolve_room_conflicts(room_events)
@@ -1263,9 +1274,11 @@ def render_matrix_pdf(
     outdir: Path,
     page_size: str,
     orientation: str,
+    layout_path: Path | None = None,
 ) -> list[Path]:
     outdir.mkdir(parents=True, exist_ok=True)
     events_by_day = load_events_by_day(conn)
+    layout = layout_config.load_layout(layout_path) if layout_path else None
     output_files: list[Path] = []
     index_links = []
 
@@ -1273,6 +1286,11 @@ def render_matrix_pdf(
         events = events_by_day.get(day_name, [])
         if not events:
             continue
+        room_order: list[str] = []
+        if layout:
+            events, room_order = layout_config.apply_layout(events, day_name, layout)
+            if not events:
+                continue
         label = select_day_label(events)
         html_content = render_day_matrix_html(
             day_name,
@@ -1281,6 +1299,7 @@ def render_matrix_pdf(
             pdf_mode=True,
             page_size=page_size,
             orientation=orientation,
+            room_order_override=room_order,
         )
         filename = f"day-{day_name.lower()}.pdf"
         filepath = outdir / filename
@@ -1319,9 +1338,15 @@ def render_matrix_pdf(
     return output_files
 
 
-def render_html(conn: sqlite3.Connection, outdir: Path, renderer: str) -> list[Path]:
+def render_html(
+    conn: sqlite3.Connection,
+    outdir: Path,
+    renderer: str,
+    layout_path: Path | None = None,
+) -> list[Path]:
     outdir.mkdir(parents=True, exist_ok=True)
     events_by_day = load_events_by_day(conn)
+    layout = layout_config.load_layout(layout_path) if layout_path else None
 
     output_files: list[Path] = []
     index_links = []
@@ -1335,8 +1360,21 @@ def render_html(conn: sqlite3.Connection, outdir: Path, renderer: str) -> list[P
         events = events_by_day.get(day_name, [])
         if not events:
             continue
+        room_order: list[str] = []
+        if layout:
+            events, room_order = layout_config.apply_layout(events, day_name, layout)
+            if not events:
+                continue
         label = select_day_label(events)
-        html_content = render_day(day_name, label, events)
+        if renderer == "matrix":
+            html_content = render_day(
+                day_name,
+                label,
+                events,
+                room_order_override=room_order,
+            )
+        else:
+            html_content = render_day(day_name, label, events)
         filename = f"day-{day_name.lower()}.html"
         filepath = outdir / filename
         filepath.write_text(html_content, encoding="utf-8")
@@ -1415,6 +1453,12 @@ def main() -> None:
         default="landscape",
         help="PDF orientation (used by matrix-pdf)",
     )
+    render_parser.add_argument(
+        "--layout",
+        type=Path,
+        default=Path("layout.json"),
+        help="Layout overrides JSON",
+    )
 
     args = parser.parse_args()
 
@@ -1431,9 +1475,15 @@ def main() -> None:
                 args.outdir,
                 args.page_size,
                 args.orientation,
+                layout_path=args.layout,
             )
         else:
-            outputs = render_html(conn, args.outdir, args.renderer)
+            outputs = render_html(
+                conn,
+                args.outdir,
+                args.renderer,
+                layout_path=args.layout,
+            )
         print(f"Rendered {len(outputs)} files in {args.outdir}")
 
 
