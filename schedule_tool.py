@@ -8,11 +8,11 @@ import collections
 import datetime as dt
 import html
 import json
-import os
 import re
+import shutil
 import sqlite3
 import subprocess
-import sys
+import tempfile
 from pathlib import Path
 
 DAY_ORDER = [
@@ -387,6 +387,35 @@ def select_day_label(events: list[dict]) -> str:
     if counts:
         return counts.most_common(1)[0][0]
     return events[0]["day_name"]
+
+
+def load_events_by_day(conn: sqlite3.Connection) -> dict[str, list[dict]]:
+    rows = conn.execute(
+        """
+        SELECT day_name, day_index, date_text, date_iso, start_time, end_time,
+               start_min, end_min, room, title, session, talk_title
+        FROM events
+        ORDER BY day_index, start_min, end_min
+        """
+    ).fetchall()
+    events_by_day: dict[str, list[dict]] = collections.defaultdict(list)
+    for row in rows:
+        event = {
+            "day_name": row[0],
+            "day_index": row[1],
+            "date_text": row[2],
+            "date_iso": row[3],
+            "start_time": row[4],
+            "end_time": row[5],
+            "start_min": row[6],
+            "end_min": row[7],
+            "room": row[8],
+            "title": row[9],
+            "session": row[10],
+            "talk_title": row[11],
+        }
+        events_by_day[event["day_name"]].append(event)
+    return events_by_day
 
 
 def intervals_overlap(left: dict, right: dict) -> bool:
@@ -867,7 +896,14 @@ tbody tr:nth-child(even) td {
     return "\n".join(html_parts)
 
 
-def render_day_matrix_html(day_name: str, day_label: str, events: list[dict]) -> str:
+def render_day_matrix_html(
+    day_name: str,
+    day_label: str,
+    events: list[dict],
+    pdf_mode: bool = False,
+    page_size: str = "A4",
+    orientation: str = "landscape",
+) -> str:
     events = [
         event
         for event in events
@@ -916,7 +952,17 @@ def render_day_matrix_html(day_name: str, day_label: str, events: list[dict]) ->
             for offset in range(1, row_span):
                 room_skips[room].add(start + offset * slot_minutes)
 
-    css = """
+    page_rule = ""
+    matrix_overflow = "auto"
+    table_width = "max-content"
+    table_layout = "auto"
+    if pdf_mode:
+        page_rule = f"@page {{ size: {page_size} {orientation}; margin: 10mm; }}\\n"
+        matrix_overflow = "visible"
+        table_width = "100%"
+        table_layout = "fixed"
+
+    css_template = """
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap');
 :root {
   --paper: #f5f0e6;
@@ -974,14 +1020,15 @@ header .subtitle {
 .matrix-wrap {
   margin-top: 24px;
   border-radius: 14px;
-  overflow: auto;
+  overflow: __MATRIX_OVERFLOW__;
   border: 1px solid rgba(46, 42, 37, 0.18);
   background: var(--event-bg);
 }
 table {
-  width: max-content;
+  width: __TABLE_WIDTH__;
   min-width: 100%;
   border-collapse: collapse;
+  table-layout: __TABLE_LAYOUT__;
 }
 thead th {
   position: sticky;
@@ -1026,6 +1073,7 @@ tbody td.empty {
 .event-cell {
   background: #fffdf7;
   border-left: 3px solid var(--accent);
+  overflow-wrap: anywhere;
 }
 .event-title {
   font-weight: 600;
@@ -1061,6 +1109,12 @@ tbody td.empty {
   }
 }
 """
+    css = (
+        page_rule
+        + css_template.replace("__MATRIX_OVERFLOW__", matrix_overflow)
+        .replace("__TABLE_WIDTH__", table_width)
+        .replace("__TABLE_LAYOUT__", table_layout)
+    )
 
     html_parts = [
         "<!DOCTYPE html>",
@@ -1157,33 +1211,117 @@ tbody td.empty {
     return "\n".join(html_parts)
 
 
+def render_pdf_from_html(
+    html_content: str,
+    output_path: Path,
+    page_size: str,
+    orientation: str,
+) -> None:
+    try:
+        from weasyprint import CSS, HTML
+    except (ImportError, OSError) as exc:
+        wkhtmltopdf = shutil.which("wkhtmltopdf")
+        if not wkhtmltopdf:
+            raise SystemExit(
+                "PDF rendering requires weasyprint (with system libraries) or wkhtmltopdf. "
+                "WeasyPrint failed to load; install its system deps or install wkhtmltopdf. "
+                f"Original error: {exc}"
+            )
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".html", delete=False, encoding="utf-8"
+        ) as temp_file:
+            temp_file.write(html_content)
+            temp_path = Path(temp_file.name)
+        try:
+            subprocess.check_call(
+                [
+                    wkhtmltopdf,
+                    "--enable-local-file-access",
+                    "--page-size",
+                    page_size,
+                    "--orientation",
+                    orientation.capitalize(),
+                    str(temp_path),
+                    str(output_path),
+                ]
+            )
+        finally:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+        return
+    page_rule = f"@page {{ size: {page_size} {orientation}; margin: 10mm; }}"
+    HTML(string=html_content, base_url=str(output_path.parent)).write_pdf(
+        str(output_path),
+        stylesheets=[CSS(string=page_rule)],
+    )
+
+
+def render_matrix_pdf(
+    conn: sqlite3.Connection,
+    outdir: Path,
+    page_size: str,
+    orientation: str,
+) -> list[Path]:
+    outdir.mkdir(parents=True, exist_ok=True)
+    events_by_day = load_events_by_day(conn)
+    output_files: list[Path] = []
+    index_links = []
+
+    for day_name in DAY_ORDER:
+        events = events_by_day.get(day_name, [])
+        if not events:
+            continue
+        label = select_day_label(events)
+        html_content = render_day_matrix_html(
+            day_name,
+            label,
+            events,
+            pdf_mode=True,
+            page_size=page_size,
+            orientation=orientation,
+        )
+        filename = f"day-{day_name.lower()}.pdf"
+        filepath = outdir / filename
+        render_pdf_from_html(html_content, filepath, page_size, orientation)
+        output_files.append(filepath)
+        index_links.append((day_name, filename))
+
+    if index_links:
+        index_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>SICB matrix PDFs</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: 'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif; margin: 40px; color: #1c1b1a; }
+    h1 { font-family: 'Fraunces', 'Georgia', serif; }
+    a { color: #c86b2d; text-decoration: none; }
+    li { margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>SICB matrix PDFs</h1>
+  <ul>
+"""
+        for day_name, filename in index_links:
+            index_html += f"    <li><a href=\"{filename}\">{day_name}</a></li>\n"
+        index_html += """  </ul>
+</body>
+</html>
+"""
+        index_path = outdir / "index.html"
+        index_path.write_text(index_html, encoding="utf-8")
+        output_files.append(index_path)
+    return output_files
+
+
 def render_html(conn: sqlite3.Connection, outdir: Path, renderer: str) -> list[Path]:
     outdir.mkdir(parents=True, exist_ok=True)
-    rows = conn.execute(
-        """
-        SELECT day_name, day_index, date_text, date_iso, start_time, end_time,
-               start_min, end_min, room, title, session, talk_title
-        FROM events
-        ORDER BY day_index, start_min, end_min
-        """
-    ).fetchall()
-    events_by_day: dict[str, list[dict]] = collections.defaultdict(list)
-    for row in rows:
-        event = {
-            "day_name": row[0],
-            "day_index": row[1],
-            "date_text": row[2],
-            "date_iso": row[3],
-            "start_time": row[4],
-            "end_time": row[5],
-            "start_min": row[6],
-            "end_min": row[7],
-            "room": row[8],
-            "title": row[9],
-            "session": row[10],
-            "talk_title": row[11],
-        }
-        events_by_day[event["day_name"]].append(event)
+    events_by_day = load_events_by_day(conn)
 
     output_files: list[Path] = []
     index_links = []
@@ -1262,9 +1400,20 @@ def main() -> None:
     render_parser.add_argument("--outdir", type=Path, default=Path("output"))
     render_parser.add_argument(
         "--renderer",
-        choices=["table", "timeline", "matrix"],
+        choices=["table", "timeline", "matrix", "matrix-pdf"],
         default="table",
         help="Output renderer",
+    )
+    render_parser.add_argument(
+        "--page-size",
+        default="A4",
+        help="PDF page size (used by matrix-pdf)",
+    )
+    render_parser.add_argument(
+        "--orientation",
+        choices=["portrait", "landscape"],
+        default="landscape",
+        help="PDF orientation (used by matrix-pdf)",
     )
 
     args = parser.parse_args()
@@ -1276,7 +1425,15 @@ def main() -> None:
 
     if args.command == "render":
         conn = init_db(args.db)
-        outputs = render_html(conn, args.outdir, args.renderer)
+        if args.renderer == "matrix-pdf":
+            outputs = render_matrix_pdf(
+                conn,
+                args.outdir,
+                args.page_size,
+                args.orientation,
+            )
+        else:
+            outputs = render_html(conn, args.outdir, args.renderer)
         print(f"Rendered {len(outputs)} files in {args.outdir}")
 
 

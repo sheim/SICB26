@@ -5,6 +5,10 @@ description = "Parse SICB itinerary PDFs into SQLite and render timetables."
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+pdf = ["fpdf2"]
+pdf-html = ["weasyprint"]
+
 [project.scripts]
 schedule-tool = "schedule_tool:main"
 
