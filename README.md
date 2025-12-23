@@ -114,3 +114,19 @@ When two events overlap in the same room/time (e.g., a session block and an indi
 If parsing fails with a `pdftotext` error, install Poppler and ensure `pdftotext` is available on your PATH.
 
 If HTML-to-PDF rendering fails, install `weasyprint` (`uv pip install -e .[pdf-html]`) or `wkhtmltopdf`.
+
+## Clean generated files
+
+```bash
+python3 scripts/clean.py
+```
+
+Options:
+- `--keep-layout` keeps `layout.json`
+- `--venv` removes `.venv`
+
+To recreate everything:
+1) `uv run schedule_tool.py parse <pdf> --db schedule.db --json events.json`
+2) `uv run schedule_tool.py render --db schedule.db --outdir output --renderer matrix`
+3) `uv run python render_matrix_pdf.py --db schedule.db --outdir output-pdf` (optional PDF)
+4) `uv run python gui_server.py --db schedule.db --layout layout.json` (GUI editor)

@@ -15,3 +15,6 @@ schedule-tool = "schedule_tool:main"
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["schedule_tool", "render_matrix_pdf", "gui_server", "layout_config"]
