@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import re
 import sqlite3
 import unicodedata
 from dataclasses import dataclass
@@ -54,6 +55,21 @@ def sanitize_text(value: str | None) -> str:
     text = unicodedata.normalize("NFKD", text)
     text = text.encode("ascii", "ignore").decode("ascii")
     return " ".join(text.split())
+
+
+ROOM_CODE_RE = re.compile(r"^([A-Za-z]+\\d+[A-Za-z0-9-]*)")
+
+
+def short_room_label(value: str | None) -> str:
+    if not value:
+        return ""
+    room = str(value).strip()
+    if "(" in room:
+        room = room.split("(", 1)[0].strip()
+    match = ROOM_CODE_RE.match(room)
+    if match:
+        return match.group(1)
+    return room
 
 
 def assign_misc_lanes(events: list[dict]) -> list[list[dict]]:
@@ -165,32 +181,87 @@ def build_event_lines(
     max_width: float,
     display_options: dict,
     title_max_length: int,
+    max_lines: int,
 ) -> list[str]:
     raw_title = sanitize_text(event.get("title") or "(Untitled)")
     title_value = truncate_text(raw_title, title_max_length)
-    lines = wrap_text(pdf, title_value, max_width)
-    details: list[str] = []
     misc_room = sanitize_text(event.get("_misc_source_room"))
-    if misc_room and display_options.get("show_room"):
-        details.append(f"Room: {misc_room}")
+    misc_room_short = short_room_label(misc_room)
+    show_room = display_options.get("show_room")
+    show_time = display_options.get("show_time")
+    show_session = display_options.get("show_session")
+    show_talk = display_options.get("show_talk_title")
+
     session = sanitize_text(event.get("session"))
-    if display_options.get("show_session") and session and session != raw_title:
-        details.append(truncate_text(session, title_max_length))
+    session_line = ""
+    if show_session and session and session != raw_title:
+        session_line = truncate_text(session, title_max_length)
+
     talk_title = sanitize_text(event.get("talk_title"))
+    talk_line = ""
     if (
-        display_options.get("show_talk_title")
+        show_talk
         and talk_title
         and talk_title != raw_title
-        and talk_title not in details
+        and talk_title != session_line
     ):
-        details.append(truncate_text(talk_title, title_max_length))
-    if display_options.get("show_time"):
+        talk_line = truncate_text(talk_title, title_max_length)
+
+    time_line = ""
+    if show_time:
         time_range = f"{event.get('start_time', '')} - {event.get('end_time', '')}".strip(" -")
         if time_range:
-            details.append(time_range)
-    for detail in details:
-        lines.extend(wrap_text(pdf, detail, max_width))
-    return lines
+            time_line = time_range
+
+    room_line = ""
+    if show_room and misc_room_short:
+        room_line = f"Room: {misc_room_short}"
+
+    if max_lines <= 1:
+        if room_line:
+            combined = f"{misc_room_short} - {title_value}"
+        else:
+            combined = title_value
+        return [shorten_line(pdf, combined, max_width)]
+
+    if max_lines == 2:
+        lines = [shorten_line(pdf, title_value, max_width)]
+        secondary = ""
+        if room_line:
+            secondary = room_line
+        elif time_line:
+            secondary = time_line
+        elif session_line:
+            secondary = session_line
+        elif talk_line:
+            secondary = talk_line
+        if secondary:
+            lines.append(shorten_line(pdf, secondary, max_width))
+        return lines
+
+    reserved = 1 if room_line else 0
+    max_title_lines = max(1, max_lines - reserved)
+    title_lines = truncate_lines(
+        pdf, wrap_text(pdf, title_value, max_width), max_width, max_title_lines
+    )
+    lines = list(title_lines)
+
+    extras: list[str] = []
+    if room_line:
+        extras.append(room_line)
+    if session_line:
+        extras.append(session_line)
+    if talk_line and talk_line not in extras:
+        extras.append(talk_line)
+    if time_line:
+        extras.append(time_line)
+
+    for extra in extras:
+        if len(lines) >= max_lines:
+            break
+        lines.extend(wrap_text(pdf, extra, max_width))
+
+    return truncate_lines(pdf, lines, max_width, max_lines)
 
 
 def render_day(
@@ -391,12 +462,17 @@ def render_day(
                 event = room_starts[room][slot]
                 row_span = event.get("_rowspan", 1)
                 cell_height = row_height * row_span
+                line_height = pdf.font_size * 1.2
+                max_lines = max(
+                    1, int((cell_height - 2 * config.padding) / line_height)
+                )
                 lines = build_event_lines(
                     pdf,
                     event,
                     room_col_width - 2 * config.padding,
                     display_options,
                     title_max_length,
+                    max_lines,
                 )
                 draw_cell(
                     pdf,
