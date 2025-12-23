@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SICB Timetable Editor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">SICB itinerary</p>
+          <h1>Timetable Editor</h1>
+        </div>
+        <div class="status" id="status"></div>
+      </header>
+
+      <section class="controls">
+        <label class="control">
+          Day
+          <select id="daySelect"></select>
+        </label>
+        <div class="actions">
+          <button id="saveBtn" class="primary">Save layout</button>
+          <button id="resetBtn">Reset day</button>
+        </div>
+        <div class="display-controls">
+          <div class="control-group">
+            <span class="control-label">Display</span>
+            <label class="control-toggle">
+              <input type="checkbox" id="showSession" />
+              Session
+            </label>
+            <label class="control-toggle">
+              <input type="checkbox" id="showTalkTitle" />
+              Talk title
+            </label>
+            <label class="control-toggle">
+              <input type="checkbox" id="showTime" />
+              Time range
+            </label>
+            <label class="control-toggle">
+              <input type="checkbox" id="showRoom" />
+              Room label
+            </label>
+          </div>
+          <label class="control">
+            Title max length
+            <input type="number" id="titleMaxLength" min="0" step="1" />
+            <span class="hint">0 = no truncation</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="helper">
+        <p>
+          Drag room headers to reorder columns. Use <strong>To misc</strong> to
+          move a room into a shared column and <strong>Restore room</strong> to
+          bring it back. Use <strong>Hide</strong> to remove items from the
+          outputs, then save.
+        </p>
+      </section>
+
+      <section id="tableContainer" class="table-container"></section>
+
+      <section class="hidden" id="hiddenContainer">
+        <h2>Hidden items</h2>
+        <ul id="hiddenList"></ul>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

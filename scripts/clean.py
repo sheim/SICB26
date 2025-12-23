@@ -10,6 +10,7 @@ from pathlib import Path
 SKIP_DIRS = {".venv", ".git", "node_modules"}
 BASE_TARGETS = [
     "schedule.db",
+    "schedule-dedup.db",
     "events.json",
     "layout.json",
     "output",

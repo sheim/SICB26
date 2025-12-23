@@ -1,0 +1,380 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap");
+
+:root {
+  --paper: #f5f0e6;
+  --ink: #1c1b1a;
+  --accent: #c86b2d;
+  --muted: #6b665f;
+  --grid: rgba(46, 42, 37, 0.12);
+  --event-bg: #fffdf7;
+  --row-alt: #f0e7d6;
+  --shadow: rgba(28, 27, 26, 0.15);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f4efe6;
+  color: var(--ink);
+  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+}
+
+.app {
+  max-width: none;
+  margin: 0;
+  background: var(--paper);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 16px 18px 20px;
+  position: relative;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  position: relative;
+  z-index: 1;
+  gap: 20px;
+}
+
+.app-header h1 {
+  font-family: "Fraunces", "Georgia", serif;
+  font-size: 26px;
+  margin: 0;
+  letter-spacing: 0.4px;
+}
+
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+
+.status {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+}
+
+.controls {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.display-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.control-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.control-label {
+  font-size: 12px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.control-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.control-toggle input {
+  margin: 0;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.control select {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(46, 42, 37, 0.2);
+  background: #fffdf7;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.control input[type="number"] {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(46, 42, 37, 0.2);
+  background: #fffdf7;
+  font-size: 13px;
+  color: var(--ink);
+  width: 140px;
+}
+
+.control .hint {
+  margin-top: 4px;
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}
+
+button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(46, 42, 37, 0.2);
+  background: #fffdf7;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #fffaf2;
+  border-color: transparent;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.helper {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.table-container {
+  margin-top: 14px;
+  border-radius: 12px;
+  overflow: auto;
+  border: 1px solid rgba(46, 42, 37, 0.18);
+  background: var(--event-bg);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  background: rgba(46, 42, 37, 0.06);
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+  color: var(--muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(46, 42, 37, 0.18);
+  z-index: 2;
+  word-break: break-word;
+}
+
+.room-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.room-header .mini {
+  align-self: flex-start;
+}
+
+.misc-header {
+  background: rgba(200, 107, 45, 0.12);
+}
+
+thead th.dragging {
+  opacity: 0.5;
+}
+
+.time-col {
+  width: 76px;
+  min-width: 76px;
+  white-space: nowrap;
+  font-weight: 600;
+  background: rgba(46, 42, 37, 0.04);
+}
+
+tbody tr {
+  height: 22px;
+}
+
+tbody td {
+  border-bottom: 1px solid rgba(46, 42, 37, 0.1);
+  border-right: 1px solid rgba(46, 42, 37, 0.08);
+  vertical-align: top;
+  padding: 4px 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+tbody td.empty {
+  background: linear-gradient(90deg, rgba(255, 253, 247, 0.8), rgba(255, 253, 247, 0.6));
+}
+
+.event-cell {
+  background: #fffdf7;
+  border-left: 3px solid var(--accent);
+}
+
+.event-body {
+  display: flex;
+  gap: 6px;
+}
+
+.event-session-vertical {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.event-children {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-child {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.event-child-time {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.event-child-title {
+  flex: 1;
+}
+
+.event-child .mini {
+  padding: 2px 5px;
+  font-size: 9px;
+  border-radius: 6px;
+}
+
+.event-title {
+  font-weight: 600;
+}
+
+.event-detail {
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.event-room {
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.event-conflict {
+  margin-top: 4px;
+  font-size: 9px;
+  color: #8a4b1d;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.event-actions {
+  margin-top: 6px;
+}
+
+.event-actions button {
+  padding: 3px 6px;
+  font-size: 9px;
+  border-radius: 6px;
+}
+
+button.mini {
+  padding: 2px 5px;
+  font-size: 9px;
+  border-radius: 6px;
+}
+
+.hidden {
+  margin-top: 18px;
+}
+
+.hidden h2 {
+  font-family: "Fraunces", "Georgia", serif;
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+
+.hidden ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.hidden li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fffdf7;
+  border: 1px solid rgba(46, 42, 37, 0.12);
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+.hidden li button {
+  font-size: 10px;
+}
+
+@media (max-width: 960px) {
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .actions {
+    width: 100%;
+  }
+}

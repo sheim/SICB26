@@ -19,6 +19,7 @@ from schedule_tool import (
     minutes_to_label,
     resolve_room_conflicts,
     select_day_label,
+    truncate_text,
 )
 
 
@@ -158,22 +159,35 @@ def draw_cell(
         cursor_y += line_height
 
 
-def build_event_lines(pdf: FPDF, event: dict, max_width: float) -> list[str]:
-    title_value = sanitize_text(event.get("title") or "(Untitled)")
+def build_event_lines(
+    pdf: FPDF,
+    event: dict,
+    max_width: float,
+    display_options: dict,
+    title_max_length: int,
+) -> list[str]:
+    raw_title = sanitize_text(event.get("title") or "(Untitled)")
+    title_value = truncate_text(raw_title, title_max_length)
     lines = wrap_text(pdf, title_value, max_width)
     details: list[str] = []
     misc_room = sanitize_text(event.get("_misc_source_room"))
-    if misc_room:
+    if misc_room and display_options.get("show_room"):
         details.append(f"Room: {misc_room}")
     session = sanitize_text(event.get("session"))
-    if session and session != title_value:
-        details.append(session)
+    if display_options.get("show_session") and session and session != raw_title:
+        details.append(truncate_text(session, title_max_length))
     talk_title = sanitize_text(event.get("talk_title"))
-    if talk_title and talk_title != title_value and talk_title not in details:
-        details.append(talk_title)
-    conflicts = event.get("conflicts_ignored", 0)
-    if conflicts:
-        details.append(f"Overlap ignored ({conflicts})")
+    if (
+        display_options.get("show_talk_title")
+        and talk_title
+        and talk_title != raw_title
+        and talk_title not in details
+    ):
+        details.append(truncate_text(talk_title, title_max_length))
+    if display_options.get("show_time"):
+        time_range = f"{event.get('start_time', '')} - {event.get('end_time', '')}".strip(" -")
+        if time_range:
+            details.append(time_range)
     for detail in details:
         lines.extend(wrap_text(pdf, detail, max_width))
     return lines
@@ -187,6 +201,8 @@ def render_day(
     config: RenderConfig,
     room_order_override: list[str] | None = None,
     misc_rooms_override: list[str] | None = None,
+    display_options: dict | None = None,
+    title_max_length: int | None = None,
 ) -> None:
     events = [
         event
@@ -195,6 +211,10 @@ def render_day(
     ]
     if not events:
         return
+
+    display_options = display_options or layout_config.DEFAULT_DISPLAY_OPTIONS
+    if title_max_length is None:
+        title_max_length = layout_config.DEFAULT_TITLE_MAX_LENGTH
 
     misc_rooms_set = set(misc_rooms_override or [])
     room_counts: collections.Counter[str] = collections.Counter()
@@ -372,7 +392,11 @@ def render_day(
                 row_span = event.get("_rowspan", 1)
                 cell_height = row_height * row_span
                 lines = build_event_lines(
-                    pdf, event, room_col_width - 2 * config.padding
+                    pdf,
+                    event,
+                    room_col_width - 2 * config.padding,
+                    display_options,
+                    title_max_length,
                 )
                 draw_cell(
                     pdf,
@@ -426,6 +450,7 @@ def main() -> None:
     conn = sqlite3.connect(str(args.db))
     events_by_day = load_events_by_day(conn)
     layout = layout_config.load_layout(args.layout)
+    display_options, title_max_length = layout_config.get_display_settings(layout)
 
     config = RenderConfig(
         page_size=args.page_size,
@@ -465,6 +490,8 @@ def main() -> None:
             config,
             room_order_override=room_order,
             misc_rooms_override=misc_rooms,
+            display_options=display_options,
+            title_max_length=title_max_length,
         )
         output_path = args.outdir / f"day-{day_name.lower()}.pdf"
         pdf.output(str(output_path))

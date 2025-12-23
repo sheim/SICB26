@@ -6,10 +6,21 @@ import copy
 import json
 from pathlib import Path
 
+DEFAULT_DISPLAY_OPTIONS = {
+    "show_session": True,
+    "show_talk_title": True,
+    "show_time": True,
+    "show_room": True,
+}
+
+DEFAULT_TITLE_MAX_LENGTH = 60
+
 DEFAULT_LAYOUT = {
     "room_order_by_day": {},
     "hidden_event_ids_by_day": {},
     "misc_rooms_by_day": {},
+    "display_options": DEFAULT_DISPLAY_OPTIONS,
+    "title_max_length": DEFAULT_TITLE_MAX_LENGTH,
 }
 
 
@@ -47,6 +58,20 @@ def normalize_layout(data: dict | None) -> dict:
                 if normalized:
                     layout["misc_rooms_by_day"][str(day)] = normalized
 
+    display_options = data.get("display_options")
+    if isinstance(display_options, dict):
+        for key in DEFAULT_DISPLAY_OPTIONS:
+            value = display_options.get(key)
+            if isinstance(value, bool):
+                layout["display_options"][key] = value
+
+    title_max_length = data.get("title_max_length")
+    if title_max_length is not None:
+        try:
+            layout["title_max_length"] = max(0, int(title_max_length))
+        except (TypeError, ValueError):
+            pass
+
     return layout
 
 
@@ -73,3 +98,12 @@ def apply_layout(
     room_order = layout.get("room_order_by_day", {}).get(day_name, [])
     misc_rooms = layout.get("misc_rooms_by_day", {}).get(day_name, [])
     return filtered, room_order, misc_rooms
+
+
+def get_display_settings(layout: dict | None) -> tuple[dict, int]:
+    display = copy.deepcopy(DEFAULT_DISPLAY_OPTIONS)
+    title_max_length = DEFAULT_TITLE_MAX_LENGTH
+    if layout:
+        display.update(layout.get("display_options", {}))
+        title_max_length = layout.get("title_max_length", title_max_length)
+    return display, title_max_length

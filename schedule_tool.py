@@ -102,6 +102,33 @@ def minutes_to_label(minutes: int) -> str:
     return f"{display_hour}:{minute:02d} {ampm}"
 
 
+def truncate_text(text: str, max_length: int | None) -> str:
+    if not text:
+        return ""
+    if not max_length or max_length <= 0:
+        return text
+    if len(text) <= max_length:
+        return text
+    suffix = "..."
+    if max_length <= len(suffix):
+        return text[:max_length]
+    trimmed = text[: max_length - len(suffix)].rstrip()
+    if not trimmed:
+        return text[:max_length]
+    return trimmed + suffix
+
+
+def normalize_display_settings(
+    display_options: dict | None, title_max_length: int | None
+) -> tuple[dict, int]:
+    display = dict(layout_config.DEFAULT_DISPLAY_OPTIONS)
+    if display_options:
+        display.update(display_options)
+    if title_max_length is None:
+        title_max_length = layout_config.DEFAULT_TITLE_MAX_LENGTH
+    return display, title_max_length
+
+
 def parse_date_line(line: str, inferred_year: int | None) -> dict | None:
     parts = [normalize_space(part) for part in line.split(BULLET)]
     if len(parts) < 3:
@@ -438,47 +465,40 @@ def intervals_overlap(left: dict, right: dict) -> bool:
     return left["start_min"] < right["end_min"] and right["start_min"] < left["end_min"]
 
 
-def overlap_minutes(left: dict, right: dict) -> int:
-    return max(0, min(left["end_min"], right["end_min"]) - max(left["start_min"], right["start_min"]))
-
-
-def event_specificity(event: dict) -> int:
-    return 1 if event.get("talk_title") else 0
-
-
 def resolve_room_conflicts(events: list[dict]) -> list[dict]:
     resolved: list[dict] = []
-    for event in events:
-        event["conflicts_ignored"] = event.get("conflicts_ignored", 0)
     for event in sorted(events, key=lambda e: (e["start_min"], e["end_min"])):
         conflicts = [existing for existing in resolved if intervals_overlap(event, existing)]
         if not conflicts:
             resolved.append(event)
             continue
-        candidates = conflicts + [event]
-        candidates.sort(
-            key=lambda e: (
-                event_specificity(e),
-                e["end_min"] - e["start_min"],
-                -e["start_min"],
-            )
-        )
-        winner = candidates[-1]
-        if winner is event:
+        duration = event["end_min"] - event["start_min"]
+        longer_than_all = True
+        for existing in conflicts:
+            existing_duration = existing["end_min"] - existing["start_min"]
+            if duration <= existing_duration:
+                longer_than_all = False
+                break
+        if longer_than_all:
             for conflict in conflicts:
                 resolved.remove(conflict)
-                event["conflicts_ignored"] += 1 + conflict.get("conflicts_ignored", 0)
             resolved.append(event)
-        else:
-            best_match = max(conflicts, key=lambda c: overlap_minutes(event, c))
-            best_match["conflicts_ignored"] += 1
     return resolved
 
 
-def render_day_timeline_html(day_name: str, day_label: str, events: list[dict]) -> str:
+def render_day_timeline_html(
+    day_name: str,
+    day_label: str,
+    events: list[dict],
+    display_options: dict | None = None,
+    title_max_length: int | None = None,
+) -> str:
     events = [event for event in events if event.get("start_min") is not None and event.get("end_min") is not None]
     if not events:
         return ""
+    display, title_max_length = normalize_display_settings(
+        display_options, title_max_length
+    )
     assign_lanes(events)
     day_start = min(event["start_min"] for event in events)
     day_end = max(event["end_min"] for event in events)
@@ -503,11 +523,27 @@ def render_day_timeline_html(day_name: str, day_label: str, events: list[dict]) 
         lane_index = event.get("lane", 0)
         width = f"calc((100% - {gutter_width}px - {(lane_count - 1) * lane_gap}px) / {lane_count})"
         left = f"calc({gutter_width}px + {lane_index} * ({width} + {lane_gap}px))"
-        title = html.escape(event.get("title") or "(Untitled)")
-        session = html.escape(event.get("session") or "")
-        talk_title = html.escape(event.get("talk_title") or "")
-        room = html.escape(event.get("room") or "")
+        raw_title = event.get("title") or "(Untitled)"
+        title = html.escape(truncate_text(raw_title, title_max_length))
+        session = event.get("session") or ""
+        talk_title = event.get("talk_title") or ""
+        session_lines: list[str] = []
+        if display.get("show_session") and session and session != raw_title:
+            session_lines.append(truncate_text(session, title_max_length))
+        if (
+            display.get("show_talk_title")
+            and talk_title
+            and talk_title != raw_title
+            and talk_title not in session_lines
+        ):
+            session_lines.append(truncate_text(talk_title, title_max_length))
+        session_text = html.escape(" / ".join(session_lines))
+        room = event.get("room") or ""
         time_range = f"{event.get('start_time', '')} - {event.get('end_time', '')}".strip(" -")
+        if not display.get("show_time"):
+            time_range = ""
+        if not display.get("show_room"):
+            room = ""
         event_cards.append(
             {
                 "top": top,
@@ -515,9 +551,8 @@ def render_day_timeline_html(day_name: str, day_label: str, events: list[dict]) 
                 "left": left,
                 "width": width,
                 "title": title,
-                "session": session,
-                "talk_title": talk_title,
-                "room": room,
+                "session": session_text,
+                "room": html.escape(room),
                 "time_range": html.escape(time_range),
             }
         )
@@ -619,6 +654,9 @@ header .subtitle {
   color: var(--muted);
   line-height: 1.35;
 }
+.event .meta:empty {
+  display: none;
+}
 .event .session {
   font-size: 11px;
   color: var(--ink);
@@ -690,7 +728,13 @@ header .subtitle {
     return "\n".join(html_parts)
 
 
-def render_day_table_html(day_name: str, day_label: str, events: list[dict]) -> str:
+def render_day_table_html(
+    day_name: str,
+    day_label: str,
+    events: list[dict],
+    display_options: dict | None = None,
+    title_max_length: int | None = None,
+) -> str:
     events = [
         event
         for event in events
@@ -698,6 +742,10 @@ def render_day_table_html(day_name: str, day_label: str, events: list[dict]) -> 
     ]
     if not events:
         return ""
+
+    display, title_max_length = normalize_display_settings(
+        display_options, title_max_length
+    )
 
     events = sorted(
         events,
@@ -856,50 +904,68 @@ tbody tr:nth-child(even) td {
         "<table>",
         "<thead>",
         "<tr>",
-        "<th class=\"col-time\">Time</th>",
-        "<th>Event</th>",
-        "<th class=\"col-room\">Room</th>",
+    ]
+
+    if display.get("show_time"):
+        html_parts.append("<th class=\"col-time\">Time</th>")
+    html_parts.append("<th>Event</th>")
+    if display.get("show_room"):
+        html_parts.append("<th class=\"col-room\">Room</th>")
+    html_parts.extend([
         "</tr>",
         "</thead>",
         "<tbody>",
-    ]
+    ])
 
     for event in events:
         time_range = (
             f"{event.get('start_time', '')} - {event.get('end_time', '')}"
         ).strip(" -")
-        title_value = event.get("title") or "(Untitled)"
-        title = html.escape(title_value)
+        raw_title = event.get("title") or "(Untitled)"
+        title = html.escape(truncate_text(raw_title, title_max_length))
         details = []
         session = event.get("session")
-        if session and session != title_value:
-            details.append(session)
+        if display.get("show_session") and session and session != raw_title:
+            details.append(truncate_text(session, title_max_length))
         talk_title = event.get("talk_title")
-        if talk_title and talk_title != title_value and talk_title not in details:
-            details.append(talk_title)
+        if (
+            display.get("show_talk_title")
+            and talk_title
+            and talk_title != raw_title
+            and talk_title not in details
+        ):
+            details.append(truncate_text(talk_title, title_max_length))
         detail_html = "".join(
             f"<div class=\"detail\">{html.escape(detail)}</div>" for detail in details
         )
-        room = html.escape(event.get("room") or "")
-        html_parts.append(
+        row_cells = []
+        if display.get("show_time"):
+            row_cells.append(
+                f"<td class=\"col-time\">{html.escape(time_range)}</td>"
+            )
+        row_cells.append(
             """
-<tr>
-  <td class="col-time">{time_range}</td>
   <td class="wrap">
     <div class="title">{title}</div>
     {detail_html}
   </td>
+""".format(
+                title=title,
+                detail_html=detail_html,
+            ).strip()
+        )
+        if display.get("show_room"):
+            room = html.escape(event.get("room") or "")
+            row_cells.append(
+                """
   <td class="col-room wrap">
     <div class="room">{room}</div>
   </td>
-</tr>
 """.format(
-                time_range=html.escape(time_range),
-                title=title,
-                detail_html=detail_html,
-                room=room,
+                    room=room
+                ).strip()
             )
-        )
+        html_parts.append("<tr>\n" + "\n".join(row_cells) + "\n</tr>")
 
     html_parts.extend([
         "</tbody>",
@@ -921,6 +987,8 @@ def render_day_matrix_html(
     orientation: str = "landscape",
     room_order_override: list[str] | None = None,
     misc_rooms_override: list[str] | None = None,
+    display_options: dict | None = None,
+    title_max_length: int | None = None,
 ) -> str:
     events = [
         event
@@ -929,6 +997,10 @@ def render_day_matrix_html(
     ]
     if not events:
         return ""
+
+    display, title_max_length = normalize_display_settings(
+        display_options, title_max_length
+    )
 
     slot_minutes = 15
     misc_rooms_set = set(misc_rooms_override or [])
@@ -1213,22 +1285,27 @@ tbody td.empty {
                 event = room_starts[room][slot]
                 rowspan = event.get("_rowspan", 1)
                 title_value = event.get("title") or "(Untitled)"
-                title = html.escape(title_value)
+                title = html.escape(truncate_text(title_value, title_max_length))
                 details = []
                 session = event.get("session")
-                if session and session != title_value:
-                    details.append(session)
+                if display.get("show_session") and session and session != title_value:
+                    details.append(truncate_text(session, title_max_length))
                 talk_title = event.get("talk_title")
-                if talk_title and talk_title != title_value and talk_title not in details:
-                    details.append(talk_title)
+                if (
+                    display.get("show_talk_title")
+                    and talk_title
+                    and talk_title != title_value
+                    and talk_title not in details
+                ):
+                    details.append(truncate_text(talk_title, title_max_length))
                 time_range = (
                     f"{event.get('start_time', '')} - {event.get('end_time', '')}"
                 ).strip(" -")
-                if time_range:
+                if time_range and display.get("show_time"):
                     details.append(time_range)
                 misc_room = event.get("_misc_source_room")
                 detail_html = ""
-                if misc_room:
+                if misc_room and display.get("show_room"):
                     detail_html += (
                         f"<div class=\"event-room\">Room: {html.escape(misc_room)}</div>"
                     )
@@ -1328,6 +1405,8 @@ def render_matrix_pdf(
     outdir.mkdir(parents=True, exist_ok=True)
     events_by_day = load_events_by_day(conn)
     layout = layout_config.load_layout(layout_path) if layout_path else None
+    display_options, title_max_length = layout_config.get_display_settings(layout)
+    display_options, title_max_length = layout_config.get_display_settings(layout)
     output_files: list[Path] = []
     index_links = []
 
@@ -1353,6 +1432,8 @@ def render_matrix_pdf(
             orientation=orientation,
             room_order_override=room_order,
             misc_rooms_override=misc_rooms,
+            display_options=display_options,
+            title_max_length=title_max_length,
         )
         filename = f"day-{day_name.lower()}.pdf"
         filepath = outdir / filename
@@ -1429,9 +1510,17 @@ def render_html(
                 events,
                 room_order_override=room_order,
                 misc_rooms_override=misc_rooms,
+                display_options=display_options,
+                title_max_length=title_max_length,
             )
         else:
-            html_content = render_day(day_name, label, events)
+            html_content = render_day(
+                day_name,
+                label,
+                events,
+                display_options=display_options,
+                title_max_length=title_max_length,
+            )
         filename = f"day-{day_name.lower()}.html"
         filepath = outdir / filename
         filepath.write_text(html_content, encoding="utf-8")

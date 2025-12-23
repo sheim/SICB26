@@ -26,6 +26,7 @@ python3 gui_server.py --db schedule.db --layout layout.json
 
 Then open `http://127.0.0.1:8787` in your browser. Drag room headers to reorder columns, hide items, and click **Save layout**. The saved layout is stored in `layout.json` and used by matrix renderers.
 Use **To misc** on a room header to move that room into shared Misc columns (auto-creates `Misc 2`, `Misc 3`, etc. when overlaps occur). Items in Misc columns show their original room and include a **Restore room** button.
+Use the display controls to toggle session/talk/time/room details and adjust the title truncation length (0 disables truncation).
 
 ## Using uv (optional)
 
@@ -91,7 +92,17 @@ Options:
 
 ## Matrix overlap behavior
 
-When two events overlap in the same room/time (e.g., a session block and an individual talk), the renderer keeps the more specific talk and ignores the broader session. The kept cell includes `Overlap ignored (N)` as a placeholder for a smarter conflict UI later.
+When two events overlap in the same room/time, the renderer keeps the longer event and drops the shorter one.
+
+## Deduplicate overlaps in the database
+
+This script scans an existing `schedule.db`, removes overlapping items in the same room/day by keeping the longest event, and writes a new DB.
+
+```bash
+python3 scripts/dedup_overlaps.py --db schedule.db --out schedule-dedup.db
+```
+
+Use `--overwrite` to replace the output DB if it already exists.
 
 ## Output files
 
@@ -102,7 +113,7 @@ When two events overlap in the same room/time (e.g., a session block and an indi
 - `output/day-<day>.pdf`: one PDF per day when using `matrix-pdf`
 - `output-pdf/day-<day>.pdf`: one PDF per day when using `render_matrix_pdf.py`
 - `layout.json`: GUI layout overrides (room order + hidden items)
-- `layout.json` also stores rooms moved into Misc columns
+- `layout.json` also stores rooms moved into Misc columns, display toggles, and `title_max_length`
 
 ## Notes and customization
 
