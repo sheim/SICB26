@@ -313,14 +313,6 @@ tbody td.empty {
   font-weight: 600;
 }
 
-.event-conflict {
-  margin-top: 4px;
-  font-size: 9px;
-  color: #8a4b1d;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-}
-
 .event-actions {
   margin-top: 6px;
 }

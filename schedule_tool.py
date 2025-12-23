@@ -1207,13 +1207,6 @@ tbody td.empty {
   color: var(--muted);
   font-weight: 600;
 }
-.event-conflict {
-  margin-top: 6px;
-  font-size: 10px;
-  color: #8a4b1d;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-}
 @media print {
   body {
     background: #ffffff;
@@ -1312,23 +1305,16 @@ tbody td.empty {
                         f"<div class=\"event-detail\">{html.escape(detail)}</div>"
                         for detail in details
                     )
-                conflict_html = ""
-                if event.get("conflicts_ignored", 0) > 0:
-                    conflict_html = (
-                        f"<div class=\"event-conflict\">Overlap ignored ({event['conflicts_ignored']})</div>"
-                    )
                 html_parts.append(
                     """
 <td class="event-cell" rowspan="{rowspan}">
   <div class="event-title">{title}</div>
   {detail_html}
-  {conflict_html}
 </td>
 """.format(
                         rowspan=rowspan,
                         title=title,
                         detail_html=detail_html,
-                        conflict_html=conflict_html,
                     )
                 )
             else:
