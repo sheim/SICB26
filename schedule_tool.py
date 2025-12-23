@@ -10,10 +10,8 @@ import html
 import json
 import layout_config
 import re
-import shutil
 import sqlite3
 import subprocess
-import tempfile
 from pathlib import Path
 
 DAY_ORDER = [
@@ -1348,130 +1346,6 @@ tbody td.empty {
     return "\n".join(html_parts)
 
 
-def render_pdf_from_html(
-    html_content: str,
-    output_path: Path,
-    page_size: str,
-    orientation: str,
-) -> None:
-    try:
-        from weasyprint import CSS, HTML
-    except (ImportError, OSError) as exc:
-        wkhtmltopdf = shutil.which("wkhtmltopdf")
-        if not wkhtmltopdf:
-            raise SystemExit(
-                "PDF rendering requires weasyprint (with system libraries) or wkhtmltopdf. "
-                "WeasyPrint failed to load; install its system deps or install wkhtmltopdf. "
-                f"Original error: {exc}"
-            )
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".html", delete=False, encoding="utf-8"
-        ) as temp_file:
-            temp_file.write(html_content)
-            temp_path = Path(temp_file.name)
-        try:
-            subprocess.check_call(
-                [
-                    wkhtmltopdf,
-                    "--enable-local-file-access",
-                    "--page-size",
-                    page_size,
-                    "--orientation",
-                    orientation.capitalize(),
-                    str(temp_path),
-                    str(output_path),
-                ]
-            )
-        finally:
-            try:
-                temp_path.unlink()
-            except FileNotFoundError:
-                pass
-        return
-    page_rule = f"@page {{ size: {page_size} {orientation}; margin: 10mm; }}"
-    HTML(string=html_content, base_url=str(output_path.parent)).write_pdf(
-        str(output_path),
-        stylesheets=[CSS(string=page_rule)],
-    )
-
-
-def render_matrix_pdf(
-    conn: sqlite3.Connection,
-    outdir: Path,
-    page_size: str,
-    orientation: str,
-    layout_path: Path | None = None,
-) -> list[Path]:
-    outdir.mkdir(parents=True, exist_ok=True)
-    events_by_day = load_events_by_day(conn)
-    layout = layout_config.load_layout(layout_path) if layout_path else None
-    display_options, title_max_length = layout_config.get_display_settings(layout)
-    display_options, title_max_length = layout_config.get_display_settings(layout)
-    output_files: list[Path] = []
-    index_links = []
-
-    for day_name in DAY_ORDER:
-        events = events_by_day.get(day_name, [])
-        if not events:
-            continue
-        room_order: list[str] = []
-        misc_rooms: list[str] = []
-        if layout:
-            events, room_order, misc_rooms = layout_config.apply_layout(
-                events, day_name, layout
-            )
-            if not events:
-                continue
-        label = select_day_label(events)
-        html_content = render_day_matrix_html(
-            day_name,
-            label,
-            events,
-            pdf_mode=True,
-            page_size=page_size,
-            orientation=orientation,
-            room_order_override=room_order,
-            misc_rooms_override=misc_rooms,
-            display_options=display_options,
-            title_max_length=title_max_length,
-        )
-        filename = f"day-{day_name.lower()}.pdf"
-        filepath = outdir / filename
-        render_pdf_from_html(html_content, filepath, page_size, orientation)
-        output_files.append(filepath)
-        index_links.append((day_name, filename))
-
-    if index_links:
-        index_html = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>SICB matrix PDFs</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { font-family: 'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif; margin: 40px; color: #1c1b1a; }
-    h1 { font-family: 'Fraunces', 'Georgia', serif; }
-    a { color: #c86b2d; text-decoration: none; }
-    li { margin: 8px 0; }
-  </style>
-</head>
-<body>
-  <h1>SICB matrix PDFs</h1>
-  <ul>
-"""
-        for day_name, filename in index_links:
-            index_html += f"    <li><a href=\"{filename}\">{day_name}</a></li>\n"
-        index_html += """  </ul>
-</body>
-</html>
-"""
-        index_path = outdir / "index.html"
-        index_path.write_text(index_html, encoding="utf-8")
-        output_files.append(index_path)
-    return output_files
-
-
 def render_html(
     conn: sqlite3.Connection,
     outdir: Path,
@@ -1481,6 +1355,7 @@ def render_html(
     outdir.mkdir(parents=True, exist_ok=True)
     events_by_day = load_events_by_day(conn)
     layout = layout_config.load_layout(layout_path) if layout_path else None
+    display_options, title_max_length = layout_config.get_display_settings(layout)
 
     output_files: list[Path] = []
     index_links = []
@@ -1584,20 +1459,9 @@ def main() -> None:
     render_parser.add_argument("--outdir", type=Path, default=Path("output"))
     render_parser.add_argument(
         "--renderer",
-        choices=["table", "timeline", "matrix", "matrix-pdf"],
+        choices=["table", "timeline", "matrix"],
         default="table",
         help="Output renderer",
-    )
-    render_parser.add_argument(
-        "--page-size",
-        default="A4",
-        help="PDF page size (used by matrix-pdf)",
-    )
-    render_parser.add_argument(
-        "--orientation",
-        choices=["portrait", "landscape"],
-        default="landscape",
-        help="PDF orientation (used by matrix-pdf)",
     )
     render_parser.add_argument(
         "--layout",
@@ -1615,21 +1479,12 @@ def main() -> None:
 
     if args.command == "render":
         conn = init_db(args.db)
-        if args.renderer == "matrix-pdf":
-            outputs = render_matrix_pdf(
-                conn,
-                args.outdir,
-                args.page_size,
-                args.orientation,
-                layout_path=args.layout,
-            )
-        else:
-            outputs = render_html(
-                conn,
-                args.outdir,
-                args.renderer,
-                layout_path=args.layout,
-            )
+        outputs = render_html(
+            conn,
+            args.outdir,
+            args.renderer,
+            layout_path=args.layout,
+        )
         print(f"Rendered {len(outputs)} files in {args.outdir}")
 
 

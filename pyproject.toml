@@ -7,7 +7,6 @@ dependencies = []
 
 [project.optional-dependencies]
 pdf = ["fpdf2"]
-pdf-html = ["weasyprint"]
 
 [project.scripts]
 schedule-tool = "schedule_tool:main"
