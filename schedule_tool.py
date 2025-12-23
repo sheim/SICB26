@@ -381,6 +381,20 @@ def assign_lanes(events: list[dict]) -> None:
             event["lane_count"] = lane_count
 
 
+def assign_misc_lanes(events: list[dict]) -> list[list[dict]]:
+    lanes: list[list[dict]] = []
+    for event in sorted(events, key=lambda e: (e["start_min"], e["end_min"])):
+        placed = False
+        for lane in lanes:
+            if event["start_min"] >= lane[-1]["end_min"]:
+                lane.append(event)
+                placed = True
+                break
+        if not placed:
+            lanes.append([event])
+    return lanes
+
+
 def select_day_label(events: list[dict]) -> str:
     if not events:
         return ""
@@ -906,6 +920,7 @@ def render_day_matrix_html(
     page_size: str = "A4",
     orientation: str = "landscape",
     room_order_override: list[str] | None = None,
+    misc_rooms_override: list[str] | None = None,
 ) -> str:
     events = [
         event
@@ -916,12 +931,18 @@ def render_day_matrix_html(
         return ""
 
     slot_minutes = 15
+    misc_rooms_set = set(misc_rooms_override or [])
     room_counts: collections.Counter[str] = collections.Counter()
     events_by_room: dict[str, list[dict]] = {}
+    misc_by_room: dict[str, list[dict]] = {}
+
     for event in events:
         room = event.get("room") or "TBD"
-        room_counts[room] += 1
-        events_by_room.setdefault(room, []).append(event)
+        if room in misc_rooms_set:
+            misc_by_room.setdefault(room, []).append(event)
+        else:
+            room_counts[room] += 1
+            events_by_room.setdefault(room, []).append(event)
 
     default_rooms = sorted(room_counts.keys(), key=lambda r: (-room_counts[r], r))
     room_order_override = room_order_override or []
@@ -938,6 +959,21 @@ def render_day_matrix_html(
 
     for room, room_events in list(events_by_room.items()):
         events_by_room[room] = resolve_room_conflicts(room_events)
+
+    misc_events: list[dict] = []
+    for room, room_events in misc_by_room.items():
+        for event in resolve_room_conflicts(room_events):
+            event["_misc_source_room"] = room
+            misc_events.append(event)
+
+    misc_lanes = assign_misc_lanes(misc_events)
+    misc_rooms: list[str] = []
+    for idx, lane in enumerate(misc_lanes):
+        label = "Misc" if idx == 0 else f"Misc {idx + 1}"
+        misc_rooms.append(label)
+        events_by_room[label] = lane
+
+    rooms.extend(misc_rooms)
 
     all_events = [event for room in rooms for event in events_by_room.get(room, [])]
     if not all_events:
@@ -1095,6 +1131,12 @@ tbody td.empty {
   font-size: 11px;
   color: var(--muted);
 }
+.event-room {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
 .event-conflict {
   margin-top: 6px;
   font-size: 10px;
@@ -1184,10 +1226,17 @@ tbody td.empty {
                 ).strip(" -")
                 if time_range:
                     details.append(time_range)
-                detail_html = "".join(
-                    f"<div class=\"event-detail\">{html.escape(detail)}</div>"
-                    for detail in details
-                )
+                misc_room = event.get("_misc_source_room")
+                detail_html = ""
+                if misc_room:
+                    detail_html += (
+                        f"<div class=\"event-room\">Room: {html.escape(misc_room)}</div>"
+                    )
+                if details:
+                    detail_html += "".join(
+                        f"<div class=\"event-detail\">{html.escape(detail)}</div>"
+                        for detail in details
+                    )
                 conflict_html = ""
                 if event.get("conflicts_ignored", 0) > 0:
                     conflict_html = (
@@ -1287,8 +1336,11 @@ def render_matrix_pdf(
         if not events:
             continue
         room_order: list[str] = []
+        misc_rooms: list[str] = []
         if layout:
-            events, room_order = layout_config.apply_layout(events, day_name, layout)
+            events, room_order, misc_rooms = layout_config.apply_layout(
+                events, day_name, layout
+            )
             if not events:
                 continue
         label = select_day_label(events)
@@ -1300,6 +1352,7 @@ def render_matrix_pdf(
             page_size=page_size,
             orientation=orientation,
             room_order_override=room_order,
+            misc_rooms_override=misc_rooms,
         )
         filename = f"day-{day_name.lower()}.pdf"
         filepath = outdir / filename
@@ -1361,8 +1414,11 @@ def render_html(
         if not events:
             continue
         room_order: list[str] = []
+        misc_rooms: list[str] = []
         if layout:
-            events, room_order = layout_config.apply_layout(events, day_name, layout)
+            events, room_order, misc_rooms = layout_config.apply_layout(
+                events, day_name, layout
+            )
             if not events:
                 continue
         label = select_day_label(events)
@@ -1372,6 +1428,7 @@ def render_html(
                 label,
                 events,
                 room_order_override=room_order,
+                misc_rooms_override=misc_rooms,
             )
         else:
             html_content = render_day(day_name, label, events)

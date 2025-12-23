@@ -25,6 +25,7 @@ python3 gui_server.py --db schedule.db --layout layout.json
 ```
 
 Then open `http://127.0.0.1:8787` in your browser. Drag room headers to reorder columns, hide items, and click **Save layout**. The saved layout is stored in `layout.json` and used by matrix renderers.
+Use **To misc** on a room header to move that room into shared Misc columns (auto-creates `Misc 2`, `Misc 3`, etc. when overlaps occur). Items in Misc columns show their original room and include a **Restore room** button.
 
 ## Using uv (optional)
 
@@ -101,6 +102,7 @@ When two events overlap in the same room/time (e.g., a session block and an indi
 - `output/day-<day>.pdf`: one PDF per day when using `matrix-pdf`
 - `output-pdf/day-<day>.pdf`: one PDF per day when using `render_matrix_pdf.py`
 - `layout.json`: GUI layout overrides (room order + hidden items)
+- `layout.json` also stores rooms moved into Misc columns
 
 ## Notes and customization
 

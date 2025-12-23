@@ -9,6 +9,7 @@ from pathlib import Path
 DEFAULT_LAYOUT = {
     "room_order_by_day": {},
     "hidden_event_ids_by_day": {},
+    "misc_rooms_by_day": {},
 }
 
 
@@ -38,6 +39,14 @@ def normalize_layout(data: dict | None) -> dict:
                 if normalized:
                     layout["hidden_event_ids_by_day"][str(day)] = normalized
 
+    misc_rooms = data.get("misc_rooms_by_day")
+    if isinstance(misc_rooms, dict):
+        for day, rooms in misc_rooms.items():
+            if isinstance(rooms, list):
+                normalized = [str(room) for room in rooms if room]
+                if normalized:
+                    layout["misc_rooms_by_day"][str(day)] = normalized
+
     return layout
 
 
@@ -56,8 +65,11 @@ def save_layout(path: Path, layout: dict) -> None:
     path.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
 
 
-def apply_layout(events: list[dict], day_name: str, layout: dict) -> tuple[list[dict], list[str]]:
+def apply_layout(
+    events: list[dict], day_name: str, layout: dict
+) -> tuple[list[dict], list[str], list[str]]:
     hidden_ids = set(layout.get("hidden_event_ids_by_day", {}).get(day_name, []))
     filtered = [event for event in events if event.get("id") not in hidden_ids]
     room_order = layout.get("room_order_by_day", {}).get(day_name, [])
-    return filtered, room_order
+    misc_rooms = layout.get("misc_rooms_by_day", {}).get(day_name, [])
+    return filtered, room_order, misc_rooms

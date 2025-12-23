@@ -55,6 +55,20 @@ def sanitize_text(value: str | None) -> str:
     return " ".join(text.split())
 
 
+def assign_misc_lanes(events: list[dict]) -> list[list[dict]]:
+    lanes: list[list[dict]] = []
+    for event in sorted(events, key=lambda e: (e["start_min"], e["end_min"])):
+        placed = False
+        for lane in lanes:
+            if event["start_min"] >= lane[-1]["end_min"]:
+                lane.append(event)
+                placed = True
+                break
+        if not placed:
+            lanes.append([event])
+    return lanes
+
+
 def wrap_text(pdf: FPDF, text: str, max_width: float) -> list[str]:
     words = text.split()
     if not words:
@@ -148,6 +162,9 @@ def build_event_lines(pdf: FPDF, event: dict, max_width: float) -> list[str]:
     title_value = sanitize_text(event.get("title") or "(Untitled)")
     lines = wrap_text(pdf, title_value, max_width)
     details: list[str] = []
+    misc_room = sanitize_text(event.get("_misc_source_room"))
+    if misc_room:
+        details.append(f"Room: {misc_room}")
     session = sanitize_text(event.get("session"))
     if session and session != title_value:
         details.append(session)
@@ -169,6 +186,7 @@ def render_day(
     events: list[dict],
     config: RenderConfig,
     room_order_override: list[str] | None = None,
+    misc_rooms_override: list[str] | None = None,
 ) -> None:
     events = [
         event
@@ -178,12 +196,17 @@ def render_day(
     if not events:
         return
 
+    misc_rooms_set = set(misc_rooms_override or [])
     room_counts: collections.Counter[str] = collections.Counter()
     events_by_room: dict[str, list[dict]] = {}
+    misc_by_room: dict[str, list[dict]] = {}
     for event in events:
         room = event.get("room") or "TBD"
-        room_counts[room] += 1
-        events_by_room.setdefault(room, []).append(event)
+        if room in misc_rooms_set:
+            misc_by_room.setdefault(room, []).append(event)
+        else:
+            room_counts[room] += 1
+            events_by_room.setdefault(room, []).append(event)
 
     default_rooms = sorted(room_counts.keys(), key=lambda r: (-room_counts[r], r))
     room_order_override = room_order_override or []
@@ -200,6 +223,18 @@ def render_day(
 
     for room, room_events in list(events_by_room.items()):
         events_by_room[room] = resolve_room_conflicts(room_events)
+
+    misc_events: list[dict] = []
+    for room, room_events in misc_by_room.items():
+        for event in resolve_room_conflicts(room_events):
+            event["_misc_source_room"] = room
+            misc_events.append(event)
+
+    misc_lanes = assign_misc_lanes(misc_events)
+    for idx, lane in enumerate(misc_lanes):
+        label = "Misc" if idx == 0 else f"Misc {idx + 1}"
+        rooms.append(label)
+        events_by_room[label] = lane
 
     all_events = [event for room in rooms for event in events_by_room.get(room, [])]
     if not all_events:
@@ -411,7 +446,9 @@ def main() -> None:
         events = events_by_day.get(day_name, [])
         if not events:
             continue
-        events, room_order = layout_config.apply_layout(events, day_name, layout)
+        events, room_order, misc_rooms = layout_config.apply_layout(
+            events, day_name, layout
+        )
         if not events:
             continue
         label = select_day_label(events)
@@ -420,7 +457,15 @@ def main() -> None:
             unit="mm",
             format=args.page_size,
         )
-        render_day(pdf, day_name, label, events, config, room_order_override=room_order)
+        render_day(
+            pdf,
+            day_name,
+            label,
+            events,
+            config,
+            room_order_override=room_order,
+            misc_rooms_override=misc_rooms,
+        )
         output_path = args.outdir / f"day-{day_name.lower()}.pdf"
         pdf.output(str(output_path))
         outputs.append(output_path)
