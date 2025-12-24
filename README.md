@@ -1,79 +1,39 @@
 # SICB Itinerary Parser + Timetable Renderer
 
-Parse a SICB itinerary PDF into SQLite and render printable HTML schedules or PDFs.
+I was a bit frustrated with the [SICB2026](https://www.xcdsystem.com/sicb/program/ddC9FQp/index.cfm?pgid=2696&RunRemoveSessionFilter=1) "Print My Itinerary" just giving you a list in PDF format, which is not very readable; I would like a timetable. So (with some codex help), here's some Python code that will parse your PDF in a database, which you can then interactively adjust a bit via browser, and finally convert into a table PDF to print for each day.
 
 ## Requirements
 
 - Python 3.10+
-- `pdftotext` on PATH (from Poppler)
-- For direct PDF output: `fpdf2` (Python, no system deps)
+
+I recommend setting up with [uv](https://docs.astral.sh/uv/getting-started/installation/).
+If you're more familiar with Conda or something else, that should work too.
 
 ## Quick start
 
-```bash
-python3 schedule_tool.py parse itinerary_393889_0231776.pdf --db schedule.db --json events.json
-python3 schedule_tool.py render --db schedule.db --outdir output --renderer matrix
-```
+1. First, create your official itinerary PDF, and save it in this folder (or wherever).
 
-Open `output/index.html` to navigate to each day.
+Note, it is generally better to add the entire session rather than individual talks (if you're attending most talks in the session); adding a lot of individual talks tends to make a lot of columns, and there is then very little space for information resulting in short truncated titles that dont' tell you anything. More on that later.
+
+2. Parse the PDF:
+    `python3 schedule_tool.py parse itinerary_393889_4913771.pdf --db schedule.db --json events.json`
+
+3. Check and manually modify
+    `python3 gui_server.py --db schedule.db --layout layout.json`
+
+4. Create PDF timetable
+    `python3 schedule_tool.py render --db schedule.db --outdir output --renderer matrix`
 
 ## GUI editor (reorder rooms, hide items)
 
-```bash
-python3 gui_server.py --db schedule.db --layout layout.json
-```
+After running the code, open `http://127.0.0.1:8787` in your browser. Your can:
 
-Then open `http://127.0.0.1:8787` in your browser. Drag room headers to reorder columns, hide items, and click **Save layout**. The saved layout is stored in `layout.json` and used by matrix renderers.
-Use **To misc** on a room header to move that room into shared Misc columns (auto-creates `Misc 2`, `Misc 3`, etc. when overlaps occur). Items in Misc columns show their original room and include a **Restore room** button.
-Use the display controls to toggle session/talk/time/room details and adjust the title truncation length (0 disables truncation).
+- drag room headers to reorder columns
+- hide items. This is mainly if you already have a PDF with overlapping session and individual talks; you probably want to hide the individual talks in that case.
+- toggle session/talk/time/room details and adjust the title truncation length (0 disables truncation).
+- click **To misc** on a room header to move that room into shared Misc columns. This is helpful to reduce the total columsn, if there are several rooms where you only have 1-2 talks you're interested in.
 
-## Using uv (optional)
-
-```bash
-uv venv
-uv pip install -e .
-# For direct PDF output:
-uv pip install -e .[pdf]
-uv run schedule-tool parse itinerary_393889_0231776.pdf --db schedule.db --json events.json
-uv run schedule-tool render --db schedule.db --outdir output --renderer matrix
-```
-
-You can also run without installing:
-
-```bash
-uv run python schedule_tool.py render --db schedule.db --outdir output --renderer matrix
-```
-
-## Commands
-
-### Parse
-
-```bash
-python3 schedule_tool.py parse <pdf> --db schedule.db [--json events.json]
-```
-
-- `--db`: SQLite output path (default `schedule.db`).
-- `--json`: optional JSON export of parsed events.
-
-### Render
-
-```bash
-python3 schedule_tool.py render --db schedule.db --outdir output --renderer <renderer>
-```
-
-Renderers:
-- `table` (default): list table by time with event + room columns.
-- `timeline`: overlap-aware vertical timeline with lanes.
-- `matrix`: time on rows, rooms as columns (uses rowspans).
-
-Layout options:
-- `--layout` (default `layout.json`)
-
-## Direct matrix PDF (no HTML)
-
-```bash
-python3 render_matrix_pdf.py --db schedule.db --outdir output-pdf
-```
+####
 
 Options:
 - `--page-size` (default `A4`)
@@ -82,38 +42,7 @@ Options:
 - `--font-size` (default `6.5`)
 - `--layout` (default `layout.json`)
 
-## Matrix overlap behavior
-
-When two events overlap in the same room/time, the renderer keeps the longer event and drops the shorter one.
-
-## Deduplicate overlaps in the database
-
-This script scans an existing `schedule.db`, removes overlapping items in the same room/day by keeping the longest event, and writes a new DB.
-
-```bash
-python3 scripts/dedup_overlaps.py --db schedule.db --out schedule-dedup.db
-```
-
-Use `--overwrite` to replace the output DB if it already exists.
-
-## Output files
-
-- `schedule.db`: SQLite database of events
-- `events.json`: optional JSON export
-- `output/index.html`: index page for rendered days
-- `output/day-<day>.html`: one file per day
-- `output-pdf/day-<day>.pdf`: one PDF per day when using `render_matrix_pdf.py`
-- `layout.json`: GUI layout overrides (room order + hidden items)
-- `layout.json` also stores rooms moved into Misc columns, display toggles, and `title_max_length`
-
-## Notes and customization
-
-- The matrix renderer uses 15-minute time slots; see `slot_minutes` in `schedule_tool.py` if you want a different granularity.
-- The parser expects the PDF to have day headers and lines with `Date: ... • Time: ... • Room: ...` formatting.
-
-## Troubleshooting
-
-If parsing fails with a `pdftotext` error, install Poppler and ensure `pdftotext` is available on your PATH.
+### Troubleshooting
 
 If PDF rendering fails, install `fpdf2` (`uv pip install -e .[pdf]`).
 
@@ -122,13 +51,3 @@ If PDF rendering fails, install `fpdf2` (`uv pip install -e .[pdf]`).
 ```bash
 python3 scripts/clean.py
 ```
-
-Options:
-- `--keep-layout` keeps `layout.json`
-- `--venv` removes `.venv`
-
-To recreate everything:
-1) `uv run schedule_tool.py parse <pdf> --db schedule.db --json events.json`
-2) `uv run schedule_tool.py render --db schedule.db --outdir output --renderer matrix`
-3) `uv run python render_matrix_pdf.py --db schedule.db --outdir output-pdf` (optional PDF)
-4) `uv run python gui_server.py --db schedule.db --layout layout.json` (GUI editor)
