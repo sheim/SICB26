@@ -6,8 +6,8 @@ I was a bit frustrated with the [SICB2026](https://www.xcdsystem.com/sicb/progra
 
 - Python 3.10+
 
-I recommend setting up with [uv](https://docs.astral.sh/uv/getting-started/installation/).
-If you're more familiar with Conda or something else, that should work too.
+I recommend setting up with [uv](https://docs.astral.sh/uv/getting-started/installation/); if you're using uv, the lock file is already commited, you can just run `uv sync`.
+If you're more familiar with Conda, pip, or something else, you just should just need a `pip install -e .` or equivalent (but not tested).
 
 ## Quick start
 
