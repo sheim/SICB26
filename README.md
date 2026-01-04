@@ -44,7 +44,7 @@ Options:
 
 ### Troubleshooting
 
-If PDF rendering fails, install `fpdf2` (`uv pip install -e .[pdf]`).
+If PDF rendering fails, install `fpdf` (`uv pip install -e .[pdf]`) or `uv add fpdf`.
 
 ## Clean generated files
 
