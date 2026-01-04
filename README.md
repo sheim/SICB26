@@ -22,7 +22,7 @@ Note, it is generally better to add the entire session rather than individual ta
     `python3 gui_server.py --db schedule.db --layout layout.json`
 
 4. Create PDF timetable
-    `python3 schedule_tool.py render --db schedule.db --outdir output --renderer matrix`
+    `python3 render_matrix_pdf.py --db schedule.db --outdir output-pdf`
 
 ## GUI editor (reorder rooms, hide items)
 

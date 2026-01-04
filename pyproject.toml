@@ -3,7 +3,9 @@ name = "sicb-itinerary"
 version = "0.1.0"
 description = "Parse SICB itinerary PDFs into SQLite and render timetables."
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "fpdf>=1.7.2",
+]
 
 [project.optional-dependencies]
 pdf = ["fpdf2"]
